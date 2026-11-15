@@ -87,3 +87,20 @@ is isolated:
 
 - `@docs/HLD-LLD.md` — full architecture (high- and low-level design).
 - `@docs/design/` — UI prototype and screen specs (from Claude Design).
+
+## This fork (Aditya Dash)
+
+Fork of OpenDash for Aditya's bike. Additions live in:
+
+- `google/` — Google Navigation SDK engine. `GoogleNavEngine` hosts
+  `NavigationViewForAuto` in a `Presentation` on a private `VirtualDisplay` backed by
+  an `ImageReader`; `DashViewModel.redrawFrame` copies that image into the dash frame.
+  The API key is rider-supplied at runtime (`NavigationApi.setApiKey`) and must never
+  be committed.
+- `voice/` — push-to-talk commands (`VoiceCommandParser` is pure Kotlin and unit
+  tested; `VoiceControl` wraps `SpeechRecognizer` and the Bluetooth headset mic).
+- `ui/screens/MapAndVoiceSettings.kt` — settings for both.
+
+The offline engine is the original OpenDash renderer, now on OpenStreetMap tiles.
+A helmet display is planned later: keep turn data flowing through one place
+(`GoogleNavInfoService.navInfo` / `NavEngine`) so another output can subscribe.

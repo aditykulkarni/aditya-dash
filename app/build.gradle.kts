@@ -37,7 +37,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.opendash.app"
+        applicationId = "com.aditya.dash"
         minSdk = 24
         targetSdk = 36
         versionCode = 15
@@ -83,8 +83,7 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".mui3"
-            resValue("string", "app_name", "OpenDash")
+                        resValue("string", "app_name", "Aditya Dash")
         }
         release {
             isMinifyEnabled = true
@@ -103,6 +102,8 @@ android {
         }
     }
     compileOptions {
+        // Required by the Google Navigation SDK.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -147,6 +148,9 @@ dependencies {
     implementation(libs.google.identity.googleid)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.maplibre)
+    // Google Maps on the dash (rider supplies their own API key in Settings).
+    implementation(libs.google.navigation)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.maplibre.annotation)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

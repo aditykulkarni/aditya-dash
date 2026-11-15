@@ -32,23 +32,18 @@ import java.util.concurrent.ConcurrentHashMap
 class TileProvider(context: Context, private val scope: CoroutineScope) {
     companion object {
         private const val TAG = "TileProvider"
-        // Actual Google Maps roadmap tiles (the colours/contrast the rider wants —
-        // distinct building fills, clear white roads). This is Google's tile endpoint;
-        // it's used here for a PERSONAL, single-user, non-distributed build. The
-        // compliant alternative for any public release is Google's Map Tiles API
-        // (session token + the existing MAPS_API_KEY). Format args: (z, x, y).
-        private const val URL_TEMPLATE =
-            "https://mt1.google.com/vt/lyrs=m&hl=en&z=%d&x=%d&y=%d"
-        // Browser-like UA so the tile endpoint serves us normally.
-        private const val USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
-        private const val MAX_PREFETCH_TILES = 600
+        // OpenStreetMap standard tiles, used under the OSM tile usage policy:
+        // an identifying User-Agent, on-disk caching, and only modest prefetching
+        // along the planned route. Format args: (z, x, y).
+        private const val URL_TEMPLATE = "https://tile.openstreetmap.org/%d/%d/%d.png"
+        private const val USER_AGENT = "AdityaDash/1.0 (personal motorcycle dash app; Android)"
+        private const val MAX_PREFETCH_TILES = 250
         private const val MIN_FETCH_GAP_MS = 60L // be gentle on OSM + the radio
     }
 
     private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     // Cache dir per tile source so a source switch doesn't serve stale tiles.
-    private val diskDir = File(context.cacheDir, "tiles_gmaps").apply { mkdirs() }
+    private val diskDir = File(context.cacheDir, "tiles_osm").apply { mkdirs() }
     private val memory = LruCache<String, Bitmap>(120)
     private val inflight = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var lastFetchAt = 0L

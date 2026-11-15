@@ -34,6 +34,7 @@ import com.example.opendash.media.CallInfoProvider
 import com.example.opendash.media.IncomingCall
 import com.example.opendash.media.MediaInfoProvider
 import com.example.opendash.util.DebugLog
+import com.example.opendash.voice.VoiceCommand
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,6 +78,11 @@ data class DashUiState(
     val wallpaperSaving: Boolean = false,
     val wallpaperError: String? = null,
     val pendingPairingSsid: String? = null,
+    /** True while Google's Navigation SDK is guiding and drawing the dash map. */
+    val googleActive: Boolean = false,
+    val engineNote: String? = null,
+    val voiceHeard: String? = null,
+    val voiceListening: Boolean = false,
 )
 
 class DashViewModel(app: Application) : AndroidViewModel(app) {
@@ -98,6 +104,10 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private val powerManager = app.getSystemService(Application.POWER_SERVICE) as PowerManager
     private val mediaInfo = MediaInfoProvider(app)
     private val callController = CallController(app)
+    private val google = com.example.opendash.google.GoogleNavEngine.get(app)
+    private val googleConfig = com.example.opendash.google.GoogleNavConfig.get(app)
+    private val voiceControl = com.example.opendash.voice.VoiceControl(app)
+    @Volatile private var googleActive = false
 
     private var encoder: DashEncoder? = null
     private var streamJob: Job? = null
@@ -175,6 +185,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         private const val BTN_MAP_ZOOM_OUT = 0x13
         private const val BTN_MEDIA_NEXT = 0x09
         private const val BTN_MEDIA_PREVIOUS = 0x0A
+        /** Joystick press-in: push-to-talk for voice commands. */
+        private const val BTN_PUSH_TO_TALK = 0x18
     }
 
     /** Project a lat/lng forward [distM] metres along [bearingDeg] (great-circle). */
@@ -247,6 +259,10 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 call != null && code == BTN_CALL_REJECT -> {
                     endCall(call)
                     if (call.incoming) "Call rejected" else "Call ended"
+                }
+                code == BTN_PUSH_TO_TALK -> {
+                    startVoiceCommand()
+                    "Listening"
                 }
                 isIdleWallpaperMode() && code == BTN_MEDIA_NEXT -> {
                     cycleWallpaper(1)
@@ -335,6 +351,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         userWantsConnection = false
         stopRecording()        // a connect→disconnect session = one saved ride
         teardown()
+        stopGoogle()
         session.disconnect()
         wifiManager.disconnect()
         location.stop()
@@ -564,8 +581,51 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         if (lat != null && lng != null) {
             val loc = location.lastKnown()
             tiles.prefetch(lat, lng, loc?.latitude, loc?.longitude)
-            fetchRoute(lat, lng)
+            if (wantsGoogle()) startGoogle(name, lat, lng) else {
+                stopGoogle()
+                fetchRoute(lat, lng)
+            }
         }
+    }
+
+    // ── Google Maps engine ──────────────────────────────────────────────────
+
+    private fun wantsGoogle(): Boolean =
+        googleConfig.engine == com.example.opendash.google.MapEngine.GOOGLE &&
+            google.isConfigured && google.termsAccepted
+
+    /** Start Google guidance; on any failure fall back to the offline engine's route. */
+    private fun startGoogle(name: String, lat: Double, lng: Double) {
+        viewModelScope.launch(Dispatchers.Main) {
+            googleActive = true
+            _ui.update { it.copy(googleActive = true, engineNote = null) }
+            google.setHeadingUp(headingUp)
+            google.start(
+                name, lat, lng,
+                voice = voice.mode.value == com.example.opendash.dash.nav.VoiceMode.FULL,
+            ) { reason ->
+                googleActive = false
+                _ui.update { it.copy(googleActive = false, engineNote = "$reason. Using the offline map.") }
+                if (destLat == lat && destLng == lng) fetchRoute(lat, lng)
+            }
+        }
+    }
+
+    private fun stopGoogle() {
+        if (!googleActive && !google.isActive) return
+        googleActive = false
+        _ui.update { it.copy(googleActive = false) }
+        viewModelScope.launch(Dispatchers.Main) { google.stop() }
+    }
+
+    /** Current engine choice, for Settings. */
+    fun mapEngine() = googleConfig.engine
+    fun setMapEngine(engine: com.example.opendash.google.MapEngine) {
+        googleConfig.engine = engine
+        // Re-plan the active trip on the newly chosen engine.
+        val name = _ui.value.destinationName
+        val lat = destLat; val lng = destLng
+        if (name != null && lat != null && lng != null) setDestination(name, lat, lng)
     }
 
     /** Drop the destination/route → free roam. The map keeps streaming and follows the rider. */
@@ -578,6 +638,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         panX = 0f; panY = 0f; followMode = true
         smoothEtaSec = 0.0; etaArrivalMs = 0L
         voice.resetTrip()
+        stopGoogle()
         lastSignature = ""   // force a redraw with no route line
         _ui.value = _ui.value.copy(
             destinationName = null,
@@ -615,8 +676,14 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── Map controls ────────────────────────────────────────────────────────
 
-    fun zoomIn()  { zoom = (zoom + 1).coerceAtMost(20); _ui.value = _ui.value.copy(mapZoom = zoom) }
-    fun zoomOut() { zoom = (zoom - 1).coerceAtLeast(11); _ui.value = _ui.value.copy(mapZoom = zoom) }
+    fun zoomIn()  {
+        zoom = (zoom + 1).coerceAtMost(19); _ui.value = _ui.value.copy(mapZoom = zoom)
+        if (googleActive) viewModelScope.launch(Dispatchers.Main) { google.zoomIn() }
+    }
+    fun zoomOut() {
+        zoom = (zoom - 1).coerceAtLeast(11); _ui.value = _ui.value.copy(mapZoom = zoom)
+        if (googleActive) viewModelScope.launch(Dispatchers.Main) { google.zoomOut() }
+    }
     fun panBy(dx: Float, dy: Float) = manualPan(dx, dy)
     fun recenter() {
         panX = 0f; panY = 0f; followMode = true
@@ -625,6 +692,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleHeadingUp() {
         headingUp = !headingUp
         _ui.value = _ui.value.copy(headingUp = headingUp)
+        if (googleActive) viewModelScope.launch(Dispatchers.Main) { google.setHeadingUp(headingUp) }
     }
 
     private fun manualPan(dx: Float, dy: Float) {
@@ -713,7 +781,10 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         val loc = location.location.value
-        val r = route
+        // While Google guides, its route replaces ours: no local progress tracking,
+        // rerouting or announcements (Google does all three).
+        val gNav = if (googleActive) com.example.opendash.google.GoogleNavInfoService.navInfo.value else null
+        val r = if (googleActive) null else route
         val dLat = destLat; val dLng = destLng
 
         // Default to raw GPS; map-matching below snaps it onto the route when on it.
@@ -767,6 +838,27 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             session.updateNavInfo(DashCommands.NAV_MANEUVER_CONTINUE, pv, pu, tv, tu, etaHHMM)
             // Spoken/chime turn guidance (no-op when voice mode is OFF).
             voice.maybeAnnounce(ns.nextManeuver, ns.nextTurnM, ns.remainingM)
+        } else if (googleActive && gNav != null) {
+            val toDest = (gNav.distanceToFinalDestinationMeters ?: gNav.distanceToDestinationMeters)
+            val secs = (gNav.timeToFinalDestinationSeconds ?: gNav.timeToDestinationSeconds)
+            remainingM = toDest?.toDouble()
+            etaSec = secs?.toDouble()
+            if (secs != null) {
+                smoothEtaSec = secs.toDouble()
+                etaArrivalMs = System.currentTimeMillis() + secs * 1000L
+            }
+            val stepM = gNav.distanceToCurrentStepMeters
+            if (toDest != null && stepM != null && secs != null) {
+                val (pv, pu) = toDashDistance(stepM.toDouble())
+                val (tv, tu) = toDashDistance(toDest.toDouble())
+                val arrival = java.util.Calendar.getInstance().apply { add(java.util.Calendar.SECOND, secs) }
+                val etaHHMM = "%02d%02d".format(
+                    arrival.get(java.util.Calendar.HOUR_OF_DAY), arrival.get(java.util.Calendar.MINUTE)
+                )
+                // Only the CONTINUE glyph is verified on firmware 11.63; the distances
+                // and ETA are Google's. The turn itself is drawn in our frame banner.
+                session.updateNavInfo(DashCommands.NAV_MANEUVER_CONTINUE, pv, pu, tv, tu, etaHHMM)
+            }
         } else if (loc != null && dLat != null && dLng != null) {
             remainingM = GeoPoint.distMeters(
                 GeoPoint(loc.latitude, loc.longitude), GeoPoint(dLat, dLng)
@@ -843,7 +935,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         frameRiderLng = if (rider != null) camLng else null
         // Drive the dynamic frame rate: full speed while moving/turning, throttle when idle.
         val movedM = if (camInit) GeoPoint.distMeters(GeoPoint(prevLat, prevLng), GeoPoint(camLat, camLng)) else 0.0
-        camMoving = movedM > 0.25 || (loc?.speed ?: 0f) > 0.8f
+        camMoving = movedM > 0.25 || (loc?.speed ?: 0f) > 0.8f || googleActive
 
         val centerLat = if (haveTarget) camLat else 0.0
         val centerLng = if (haveTarget) camLng else 0.0
@@ -861,6 +953,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 append("nav")
             }
+            // Google draws its own frames: redraw every tick so the dash follows them.
+            if (googleActive) append(System.nanoTime())
             // High resolution (6 dp ≈ 0.1 m, 0.1° heading) so every smoothed step redraws
             // for buttery motion. Safe from standstill jitter because the camera is fed the
             // SMOOTHED position (which settles and stops), not raw GPS.
@@ -927,6 +1021,14 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             drawCallOverlay(canvas, bmp.width, bmp.height)
             return
         }
+        if (googleActive && google.isFrameFresh()) {
+            val canvas = Canvas(bmp)
+            if (google.copyLatestFrame(canvas)) {
+                drawGoogleTurnBanner(canvas, bmp.width)
+                drawCallOverlay(canvas, bmp.width, bmp.height)
+                return
+            }
+        }
         // Glanceable ETA — minutes remaining + a stable 12-hour arrival clock. Both come
         // from the smoothed estimate so they don't flicker every second.
         val mins = _ui.value.etaMinutes
@@ -953,7 +1055,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             destLat = destLat,
             destLng = destLng,
             destName = _ui.value.destinationName,
-            route = route?.geometry ?: emptyList(),
+            // If Google's picture stalls, keep its route line on the offline map.
+            route = if (googleActive) google.state.value.route else (route?.geometry ?: emptyList()),
             maneuverText = null, // turn-by-turn maneuver banner removed
             remainingText = remainingM?.let { fmtDist(it) },
             // Top-down (heading-up) nav view. The 3D perspective tilt is DISABLED: warping
@@ -989,6 +1092,28 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             textSize = 10f
             textAlign = android.graphics.Paint.Align.CENTER
         }
+    }
+
+    private val turnBannerText by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textSize = 17f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+    }
+
+    /** Next turn from Google ("350 m  Turn left"), top-centre inside the round safe zone. */
+    private fun drawGoogleTurnBanner(canvas: Canvas, width: Int) {
+        val nav = com.example.opendash.google.GoogleNavInfoService.navInfo.value ?: return
+        val step = nav.currentStep ?: return
+        val dist = nav.distanceToCurrentStepMeters ?: return
+        val text = com.example.opendash.google.GoogleManeuvers.distance(dist) + "  " +
+            com.example.opendash.google.GoogleManeuvers.phrase(step.maneuver)
+        val cx = width / 2f
+        val half = turnBannerText.measureText(text) / 2f + 12f
+        canvas.drawRoundRect(cx - half, 30f, cx + half, 58f, 14f, 14f, callOverlayBackground)
+        canvas.drawText(text, cx, 50f, turnBannerText)
     }
 
     private fun drawCallOverlay(canvas: Canvas, width: Int, height: Int) {
@@ -1087,6 +1212,73 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         return kotlin.math.abs(delta)
     }
 
+    // ── Voice commands (push-to-talk) ───────────────────────────────────────
+
+    /** Listen for one spoken command (joystick press, or the mic button in the app). */
+    fun startVoiceCommand() {
+        viewModelScope.launch(Dispatchers.Main) {
+            _ui.update { it.copy(voiceListening = true) }
+            voiceControl.listen { heard, command ->
+                _ui.update { it.copy(voiceListening = false, voiceHeard = heard) }
+                runVoiceCommand(command)
+            }
+        }
+    }
+
+    private fun runVoiceCommand(command: VoiceCommand) {
+        when (command) {
+            is VoiceCommand.NavigateTo -> navigateBySpeech(command.place)
+            VoiceCommand.StopNavigation -> { exitNavigation(); voiceControl.say("Navigation stopped") }
+            VoiceCommand.NextTrack -> { mediaInfo.skipNext(); }
+            VoiceCommand.PreviousTrack -> { mediaInfo.skipPrevious() }
+            VoiceCommand.Pause -> mediaInfo.pause()
+            VoiceCommand.Play -> mediaInfo.play()
+            VoiceCommand.VolumeUp -> mediaInfo.volume(+2)
+            VoiceCommand.VolumeDown -> mediaInfo.volume(-2)
+            VoiceCommand.ZoomIn -> zoomIn()
+            VoiceCommand.ZoomOut -> zoomOut()
+            VoiceCommand.MuteGuidance -> {
+                voice.setMode(com.example.opendash.dash.nav.VoiceMode.OFF)
+                viewModelScope.launch(Dispatchers.Main) { google.setVoice(false) }
+                voiceControl.say("Directions muted")
+            }
+            VoiceCommand.UnmuteGuidance -> {
+                voice.setMode(com.example.opendash.dash.nav.VoiceMode.FULL)
+                viewModelScope.launch(Dispatchers.Main) { google.setVoice(true) }
+                voiceControl.say("Directions on")
+            }
+            VoiceCommand.HowFar -> {
+                val km = _ui.value.remainingKm
+                val mins = _ui.value.etaMinutes
+                voiceControl.say(
+                    if (km == null) "No route is active"
+                    else "%.1f kilometres to go".format(km) +
+                        (mins?.let { ", about $it minutes" } ?: "")
+                )
+            }
+            VoiceCommand.AnswerCall -> CallInfoProvider.incomingCall.value?.let { answerCall(it) }
+            VoiceCommand.RejectCall -> CallInfoProvider.incomingCall.value?.let { endCall(it) }
+            is VoiceCommand.Unknown -> voiceControl.say("Sorry, I didn't get that")
+        }
+    }
+
+    /** "Navigate to <place>": saved-place names first, then the phone's geocoder. */
+    private fun navigateBySpeech(place: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val loc = location.lastKnown()
+            val hit = com.example.opendash.voice.PlaceResolver.resolve(
+                getApplication(), place, loc?.latitude, loc?.longitude,
+            )
+            withContext(Dispatchers.Main) {
+                if (hit == null) voiceControl.say("I couldn't find $place")
+                else {
+                    voiceControl.say("Navigating to ${hit.name}")
+                    setDestination(hit.name, hit.lat, hit.lng)
+                }
+            }
+        }
+    }
+
     private fun teardown() {
         streamJob?.cancel(); streamJob = null
         stopMediaForwarding()
@@ -1142,5 +1334,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         wifiManager.disconnect()
         location.stop()
         voice.shutdown()
+        voiceControl.shutdown()
+        runCatching { google.stop() }
     }
 }

@@ -72,11 +72,15 @@ class DashKeepAliveService : Service() {
         // without it Android 14+ freezes location for backgrounded apps and the
         // rider marker sticks at its first fix.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIF_ID, buildNotification(),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
-            )
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            // The microphone type keeps push-to-talk voice commands working with the
+            // screen off. Only legal to request once the rider has granted the mic.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            startForeground(NOTIF_ID, buildNotification(), types)
         } else {
             startForeground(NOTIF_ID, buildNotification())
         }
@@ -141,7 +145,7 @@ class DashKeepAliveService : Service() {
             @Suppress("DEPRECATION") Notification.Builder(this)
 
         return builder
-            .setContentTitle("OpenDash — streaming to dash")
+            .setContentTitle("Aditya Dash is streaming to the dash")
             .setContentText("Map is live on the Tripper. Screen can stay off.")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)

@@ -600,6 +600,11 @@ fun SettingsScreen(
             }
         }
 
+        SectionLabel("Google Maps & voice commands")
+        SettingsGroup(padding = 14.dp) {
+            MapAndVoiceSettings(dashViewModel)
+        }
+
         SectionLabel("Voice & guidance")
         SettingsGroup(padding = 14.dp) {
             OpenDashSegmented(listOf("Off", "Chime", "Full TTS"), voice, {
@@ -608,6 +613,10 @@ fun SettingsScreen(
                     "Full TTS" -> com.example.opendash.dash.nav.VoiceMode.FULL
                     else       -> com.example.opendash.dash.nav.VoiceMode.CHIME
                 })
+                // Google speaks its own directions only in the Full setting.
+                com.example.opendash.google.GoogleNavEngine
+                    .get(ctx.applicationContext as android.app.Application)
+                    .setVoice(it == "Full TTS")
             }, Modifier.fillMaxWidth())
         }
 
@@ -740,7 +749,8 @@ private fun MoreInformationPage(page: MorePage, onBack: () -> Unit) {
         MorePage.LICENSE -> listOf(
             "OpenDash" to "Distributed under the license included with the source repository.",
             "Open-source components" to "OpenDash uses Kotlin, Jetpack Compose, MapLibre, OpenFreeMap, OSRM, AndroidX, and other libraries under their respective licenses.",
-            "Source" to "github.com/subtlesayak/open-dash",
+            "Source" to "Based on OpenDash (github.com/subtlesayak/open-dash), Apache-2.0.",
+            "Maps" to "Offline map data © OpenStreetMap contributors. Google Maps content is provided by the Google Navigation SDK under Google's terms.",
         )
         MorePage.CHANGELOG -> listOf(
             "1.3 stable" to listOf(

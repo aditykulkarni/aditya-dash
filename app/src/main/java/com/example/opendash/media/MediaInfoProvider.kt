@@ -56,6 +56,25 @@ class MediaInfoProvider(private val context: Context) {
         controller != null
     }.getOrDefault(false)
 
+    fun pause(): Boolean = runCatching {
+        controller?.transportControls?.pause()
+        controller != null
+    }.getOrDefault(false)
+
+    fun play(): Boolean = runCatching {
+        controller?.transportControls?.play()
+        controller != null
+    }.getOrDefault(false)
+
+    /** Nudge the media volume by [steps] (negative = quieter). */
+    fun volume(steps: Int) {
+        val am = context.getSystemService(android.media.AudioManager::class.java) ?: return
+        val dir = if (steps >= 0) android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
+        repeat(kotlin.math.abs(steps)) {
+            runCatching { am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, dir, 0) }
+        }
+    }
+
     private fun bind(sessions: List<MediaController>?) {
         val next = sessions?.firstOrNull()
         if (next?.sessionToken == controller?.sessionToken) {
