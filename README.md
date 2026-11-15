@@ -52,11 +52,23 @@ run on a phone or a bike.** The parts that need a first ride to confirm:
 - Only the "continue" turn glyph is known for the dash's own turn widget, so the
   actual turn ("350 m  Turn left") is drawn into the map picture instead.
 
+## Installing
+
+Google Play Protect blocks installing an APK from a file when the app can read
+notifications. Two builds exist for that reason:
+
+- **full**: every feature. Install over USB with `adb install`.
+- **lite**: no notification access, so no track name or caller cards on the dash.
+  Installs straight from the phone.
+
+If the app ever closes unexpectedly, the More page shows the details next time with
+a Share button.
+
 ## Building
 
 ```
 echo "sdk.dir=/path/to/Android/sdk" > local.properties
-./gradlew :app:assembleDebug
+./gradlew :app:assembleFullDebug   # or assembleLiteDebug
 ```
 
 Needs JDK 17 or newer and Android SDK platform 36.

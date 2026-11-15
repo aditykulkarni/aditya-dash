@@ -40,8 +40,8 @@ android {
         applicationId = "com.aditya.dash"
         minSdk = 24
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.3"
+        versionCode = 16
+        versionName = "1.3.1"
 
         buildConfigField(
             "String",
@@ -79,6 +79,15 @@ android {
                 keyPassword = releaseKeyPassword
             }
         }
+    }
+
+    // "full" has every feature but must be installed over USB (adb) where Play Protect
+    // blocks sideloaded apps that can read notifications. "lite" drops notification
+    // access (no now-playing / caller cards) and installs straight from a file.
+    flavorDimensions += "access"
+    productFlavors {
+        create("full") { dimension = "access" }
+        create("lite") { dimension = "access" }
     }
 
     buildTypes {

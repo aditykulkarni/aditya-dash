@@ -65,7 +65,8 @@ fun MapAndVoiceSettings(dashViewModel: DashViewModel) {
     var engine by remember { mutableStateOf(config.engine) }
     var key by remember { mutableStateOf(config.apiKey) }
     var keySaved by remember { mutableStateOf(config.hasKey) }
-    var terms by remember { mutableStateOf(google.termsAccepted) }
+    // Don't touch the Google SDK until there is a key for it to start with.
+    var terms by remember { mutableStateOf(config.hasKey && google.termsAccepted) }
     var night by remember { mutableStateOf(config.nightMap) }
     val label = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -105,7 +106,11 @@ fun MapAndVoiceSettings(dashViewModel: DashViewModel) {
             modifier = Modifier.fillMaxWidth(),
         )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { config.apiKey = key; keySaved = config.hasKey }) { Text("Save key") }
+            Button(onClick = {
+                config.apiKey = key
+                keySaved = config.hasKey
+                terms = keySaved && google.termsAccepted
+            }) { Text("Save key") }
             OutlinedButton(
                 enabled = keySaved,
                 onClick = {
@@ -116,6 +121,7 @@ fun MapAndVoiceSettings(dashViewModel: DashViewModel) {
         Text(
             when {
                 !keySaved -> "Step 1: paste your key and save it. It stays on this phone only."
+                google.keyChangeNeedsRestart -> "Key changed. Close the app fully and reopen it to use the new key."
                 !terms -> "Step 2: accept Google's navigation terms once."
                 else -> "Google Maps is ready."
             },

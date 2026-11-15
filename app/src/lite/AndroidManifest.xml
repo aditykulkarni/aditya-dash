@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        "lite" build: no notification access, so Google Play Protect does not block
+        installing the APK from a file. Costs the now-playing and caller cards.
+    -->
+    <application>
+        <service
+            android:name="com.example.opendash.media.OpenDashNotificationListener"
+            tools:node="remove" />
+    </application>
+</manifest>

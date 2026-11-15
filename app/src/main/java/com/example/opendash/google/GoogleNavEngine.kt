@@ -77,7 +77,10 @@ class GoogleNavEngine private constructor(private val app: Application) {
     @Volatile private var haveFrame = false
 
     val isConfigured: Boolean get() = config.hasKey
-    val termsAccepted: Boolean get() = runCatching { NavigationApi.areTermsAccepted(app) }.getOrDefault(false)
+    /** True when the saved key differs from the one the SDK started with. */
+    val keyChangeNeedsRestart: Boolean get() = keyApplied != null && keyApplied != config.apiKey
+    val termsAccepted: Boolean
+        get() = applyKey() && runCatching { NavigationApi.areTermsAccepted(app) }.getOrDefault(false)
     val isActive: Boolean
         get() = _state.value.status.let {
             it == GoogleNavStatus.STARTING || it == GoogleNavStatus.ROUTING || it == GoogleNavStatus.GUIDING
@@ -90,7 +93,9 @@ class GoogleNavEngine private constructor(private val app: Application) {
     private fun applyKey(): Boolean {
         val key = config.apiKey
         if (key.isBlank()) return false
-        if (keyApplied != key) {
+        // The SDK accepts a key once per app launch. A changed key takes effect after
+        // the app is closed and reopened; until then the first key stays in use.
+        if (keyApplied == null) {
             runCatching { NavigationApi.setApiKey(key) }
                 .onFailure { DebugLog.w(TAG) { "setApiKey failed: ${it.message}" } }
             keyApplied = key

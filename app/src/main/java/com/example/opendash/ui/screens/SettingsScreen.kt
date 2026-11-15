@@ -201,34 +201,42 @@ fun SettingsScreen(
                 fontFamily = GeistFamily,
                 modifier = Modifier.weight(1f),
             )
-            if (page == MorePage.ROOT) {
-                Icon(OpenDashIcons.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
-            }
         }
 
         if (page == MorePage.ROOT) {
-            SettingsGroup(padding = 6.dp) {
-                MoreRow(
-                    OpenDashIcons.Sync,
-                    "Update from GitHub",
-                    updateMessage ?: "Check the latest OpenDash release",
-                    last = true,
-                    control = {
+            // The last crash, if any, so it can be sent on for fixing.
+            var crashText by remember { mutableStateOf(com.example.opendash.util.CrashLog.read(ctx)) }
+            crashText?.let { crash ->
+                SettingsGroup(padding = 14.dp) {
+                    Text("The app closed unexpectedly last time", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+                    Text(crash.lineSequence().drop(4).firstOrNull().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(vertical = 6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OpenDashBtn(
-                            "Check",
-                            onClick = { updateMessage = "OpenDash ${BuildConfig.VERSION_NAME} is installed. Check GitHub Releases for newer builds." },
+                            "Share details",
+                            onClick = {
+                                val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+                                    .setType("text/plain")
+                                    .putExtra(android.content.Intent.EXTRA_TEXT, crash)
+                                runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Share crash details")) }
+                            },
                             variant = BtnVariant.Secondary,
                             size = BtnSize.Sm,
                         )
-                    },
-                )
+                        OpenDashBtn(
+                            "Dismiss",
+                            onClick = { com.example.opendash.util.CrashLog.clear(ctx); crashText = null },
+                            variant = BtnVariant.Ghost,
+                            size = BtnSize.Sm,
+                        )
+                    }
+                }
             }
 
             SectionLabel("General")
             SettingsGroup(padding = 6.dp) {
-                MoreRow(OpenDashIcons.Gear, "Settings", "Connection, ride, wallpaper, voice, units", onClick = { page = MorePage.SETTINGS })
+                MoreRow(OpenDashIcons.Gear, "Settings", "Google Maps key, voice commands, connection, wallpaper", onClick = { page = MorePage.SETTINGS })
                 SettingsDivider(Modifier.padding(horizontal = 6.dp))
-                MoreRow(OpenDashIcons.Dash, "About", "OpenDash v${BuildConfig.VERSION_NAME}", onClick = { page = MorePage.ABOUT })
+                MoreRow(OpenDashIcons.Dash, "About", "Aditya Dash v${BuildConfig.VERSION_NAME}", onClick = { page = MorePage.ABOUT })
                 SettingsDivider(Modifier.padding(horizontal = 6.dp))
                 MoreRow(OpenDashIcons.Bell, "Help", "Connection and dash wallpaper guidance", onClick = { page = MorePage.HELP })
                 SettingsDivider(Modifier.padding(horizontal = 6.dp))
@@ -656,7 +664,7 @@ fun SettingsScreen(
         }
 
         Text(
-            "OpenDash v${BuildConfig.VERSION_NAME} · ${if (!auth.syncAvailable) "local only" else if (auth.isSignedIn) "sync on" else "sync off"}",
+            "Aditya Dash v${BuildConfig.VERSION_NAME} · ${if (!auth.syncAvailable) "local only" else if (auth.isSignedIn) "sync on" else "sync off"}",
             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = GeistMonoFamily,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp),
         )
@@ -732,7 +740,7 @@ private fun MoreRow(
 private fun MoreInformationPage(page: MorePage, onBack: () -> Unit) {
     val sections = when (page) {
         MorePage.ABOUT -> listOf(
-            "OpenDash v${BuildConfig.VERSION_NAME}" to "Open-source navigation, ride management, dash wallpapers, media cards, and call controls for compatible Tripper displays.",
+            "Aditya Dash v${BuildConfig.VERSION_NAME}" to "Google Maps on the Tripper Dash with the phone locked, built on OpenDash. Open-source navigation, ride management, dash wallpapers, media cards, and call controls for compatible Tripper displays.",
             "Privacy" to "OpenDash works locally by default. Dash credentials use encrypted preferences and wallpaper media stays in app-private storage.",
         )
         MorePage.HELP -> listOf(
