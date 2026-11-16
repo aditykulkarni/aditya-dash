@@ -321,7 +321,9 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 else -> "code 0x${code.toString(16).uppercase()}"
             }
-            _ui.value = _ui.value.copy(lastButton = label)
+            // Always show the raw code too, so unmapped buttons (long presses) can be identified.
+            val hex = "0x" + code.toString(16).uppercase().padStart(2, '0')
+            _ui.value = _ui.value.copy(lastButton = if (label.startsWith("code ")) label else "$label ($hex)")
         }
     }
 
