@@ -46,24 +46,40 @@ class MediaInfoProvider(private val context: Context) {
         _nowPlaying.value = null
     }
 
-    fun skipNext(): Boolean = runCatching {
-        controller?.transportControls?.skipToNext()
-        controller != null
-    }.getOrDefault(false)
+    /**
+     * Transport controls. With notification access we talk to the active player
+     * directly; without it we send the same media-button press a headset would, so
+     * these still work in the build without notification access.
+     */
+    fun skipNext(): Boolean = control(android.view.KeyEvent.KEYCODE_MEDIA_NEXT) { it.skipToNext() }
+    fun skipPrevious(): Boolean = control(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS) { it.skipToPrevious() }
+    fun pause(): Boolean = control(android.view.KeyEvent.KEYCODE_MEDIA_PAUSE) { it.pause() }
+    fun play(): Boolean = control(android.view.KeyEvent.KEYCODE_MEDIA_PLAY) { it.play() }
 
-    fun skipPrevious(): Boolean = runCatching {
-        controller?.transportControls?.skipToPrevious()
-        controller != null
-    }.getOrDefault(false)
+    /** Play if paused, pause if playing. Returns true when music is now playing. */
+    fun togglePlayPause(): Boolean {
+        val c = controller
+        if (c == null) {
+            mediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+            val am = context.getSystemService(android.media.AudioManager::class.java)
+            return am?.isMusicActive != true   // it was playing → now paused, and the reverse
+        }
+        val playing = c.playbackState?.state == PlaybackState.STATE_PLAYING
+        runCatching { if (playing) c.transportControls.pause() else c.transportControls.play() }
+        return !playing
+    }
 
-    fun pause(): Boolean = runCatching {
-        controller?.transportControls?.pause()
-        controller != null
-    }.getOrDefault(false)
+    private fun control(key: Int, direct: (MediaController.TransportControls) -> Unit): Boolean {
+        val c = controller
+        return if (c != null) runCatching { direct(c.transportControls); true }.getOrDefault(false)
+        else mediaKey(key)
+    }
 
-    fun play(): Boolean = runCatching {
-        controller?.transportControls?.play()
-        controller != null
+    private fun mediaKey(key: Int): Boolean = runCatching {
+        val am = context.getSystemService(android.media.AudioManager::class.java) ?: return false
+        am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, key))
+        am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, key))
+        true
     }.getOrDefault(false)
 
     /** Nudge the media volume by [steps] (negative = quieter). */

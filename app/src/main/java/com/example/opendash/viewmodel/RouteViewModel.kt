@@ -34,6 +34,9 @@ data class RouteState(
     val etaText: String? = null,        // "13:32"
 )
 
+/** One hit from the in-app destination search. */
+data class PlaceHit(val name: String, val detail: String, val lat: Double, val lng: Double)
+
 class RouteViewModel(app: Application) : AndroidViewModel(app) {
     private val TAG = "RouteViewModel"
     private val _state = MutableStateFlow(RouteState())
@@ -109,6 +112,56 @@ class RouteViewModel(app: Application) : AndroidViewModel(app) {
                 else DebugLog.w(TAG) { "No coords for '$name' (url+geocode both empty)" }
             }
         }
+    }
+
+    // ── In-app destination search ──────────────────────────────────────────
+    private val _searchResults = MutableStateFlow<List<PlaceHit>>(emptyList())
+    val searchResults = _searchResults.asStateFlow()
+    private val _searching = MutableStateFlow(false)
+    val searching = _searching.asStateFlow()
+    private val _searchNote = MutableStateFlow<String?>(null)
+    val searchNote = _searchNote.asStateFlow()
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    /** Look a place up by name or address, nearest matches first. */
+    @SuppressLint("MissingPermission")
+    fun search(query: String) {
+        val q = query.trim()
+        searchJob?.cancel()
+        if (q.length < 3) { _searchResults.value = emptyList(); _searchNote.value = null; return }
+        // Pasted "lat,lng" works too.
+        Regex("""^(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$""").find(q)?.let { m ->
+            _searchResults.value = listOf(
+                PlaceHit("Dropped pin", q, m.groupValues[1].toDouble(), m.groupValues[2].toDouble())
+            )
+            return
+        }
+        searchJob = viewModelScope.launch {
+            _searching.value = true
+            _searchNote.value = null
+            val near = runCatching {
+                lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            }.getOrNull()
+            val hits = withContext(Dispatchers.IO) {
+                com.example.opendash.util.PlaceSearch.search(getApplication(), q, near?.latitude, near?.longitude)
+            }
+            _searchResults.value = hits
+            _searchNote.value = if (hits.isEmpty()) "Nothing found. Check the spelling or your internet." else null
+            _searching.value = false
+        }
+    }
+
+    fun clearSearch() {
+        searchJob?.cancel()
+        _searchResults.value = emptyList(); _searchNote.value = null; _searching.value = false
+    }
+
+    /** Use a search hit as the destination and preview the route. */
+    fun selectSearchResult(hit: PlaceHit) {
+        clearSearch()
+        _state.value = RouteState(destination = SharedLocation(name = hit.name, lat = hit.lat, lng = hit.lng))
+        computeRoute(hit.lat, hit.lng)
     }
 
     /** Geocode an address/place name to coordinates via the device's geocoder backend. */

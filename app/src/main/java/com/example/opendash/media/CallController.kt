@@ -34,6 +34,21 @@ class CallController(private val context: Context) {
             .getOrDefault(false)
     }
 
+    fun canDial(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** Place a normal phone call. Audio follows the phone's routing (the helmet headset). */
+    fun dial(number: String): Boolean {
+        if (!canDial() || number.isBlank()) return false
+        return runCatching {
+            @Suppress("MissingPermission")
+            telecom?.placeCall(android.net.Uri.fromParts("tel", number, null), android.os.Bundle())
+            telecom != null
+        }.onFailure { DebugLog.w(TAG) { "Dial failed: ${it.javaClass.simpleName}" } }
+            .getOrDefault(false)
+    }
+
     companion object {
         private const val TAG = "CallController"
     }

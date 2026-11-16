@@ -108,6 +108,12 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private val googleConfig = com.example.opendash.google.GoogleNavConfig.get(app)
     private val voiceControl = com.example.opendash.voice.VoiceControl(app)
     @Volatile private var googleActive = false
+    private val menu = com.example.opendash.dash.DashMenu()
+    private val overlay = com.example.opendash.dash.video.DashOverlayPainter()
+    private val extras = com.example.opendash.dash.DashExtras.get(app)
+    private val phoneState = com.example.opendash.media.PhoneStateMonitor(app)
+    @Volatile private var menuTouchedAt = 0L
+    @Volatile private var lastWeatherAt = 0L
 
     private var encoder: DashEncoder? = null
     private var streamJob: Job? = null
@@ -187,6 +193,13 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         private const val BTN_MEDIA_PREVIOUS = 0x0A
         /** Joystick press-in: push-to-talk for voice commands. */
         private const val BTN_PUSH_TO_TALK = 0x18
+        private const val BTN_BACK = 0x12
+        private const val BTN_UP = 0x06
+        private const val BTN_DOWN = 0x07
+        private const val BTN_RIGHT = 0x09
+        private const val BTN_LEFT = 0x0A
+        private const val MENU_IDLE_MS = 12_000L
+        private const val WEATHER_EVERY_MS = 20 * 60_000L
     }
 
     /** Project a lat/lng forward [distM] metres along [bearingDeg] (great-circle). */
@@ -260,9 +273,18 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                     endCall(call)
                     if (call.incoming) "Call rejected" else "Call ended"
                 }
+                menu.isOpen -> menuButton(code)
                 code == BTN_PUSH_TO_TALK -> {
                     startVoiceCommand()
                     "Listening"
+                }
+                code == BTN_DOWN || code == BTN_BACK -> {
+                    menu.open(navActive = destLat != null)
+                    touchMenu()
+                    "Menu"
+                }
+                code == BTN_UP -> {
+                    if (mediaInfo.togglePlayPause()) "Play" else "Pause"
                 }
                 isIdleWallpaperMode() && code == BTN_MEDIA_NEXT -> {
                     cycleWallpaper(1)
@@ -299,6 +321,60 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 else -> "code 0x${code.toString(16).uppercase()}"
             }
             _ui.value = _ui.value.copy(lastButton = label)
+        }
+    }
+
+    /** Joystick while the dash menu is open. */
+    private fun menuButton(code: Int): String {
+        val label = when (code) {
+            BTN_UP -> { menu.move(-1); "Menu up" }
+            BTN_DOWN -> { menu.move(+1); "Menu down" }
+            BTN_LEFT, BTN_BACK -> { menu.back(); "Menu back" }
+            BTN_RIGHT, BTN_PUSH_TO_TALK -> runMenuAction(menu.select())
+            else -> "code 0x${code.toString(16).uppercase()}"
+        }
+        touchMenu()
+        return label
+    }
+
+    private fun touchMenu() {
+        menuTouchedAt = System.currentTimeMillis()
+        lastSignature = ""      // redraw on the next frame
+        camMoving = true
+    }
+
+    private fun runMenuAction(action: com.example.opendash.dash.DashMenu.Action): String = when (action) {
+        com.example.opendash.dash.DashMenu.Action.LoadCalls -> {
+            loadRecentCalls()
+            "Recent calls"
+        }
+        com.example.opendash.dash.DashMenu.Action.PlayPause ->
+            if (mediaInfo.togglePlayPause()) "Play" else "Pause"
+        com.example.opendash.dash.DashMenu.Action.Voice -> { startVoiceCommand(); "Listening" }
+        com.example.opendash.dash.DashMenu.Action.StopNavigation -> { exitNavigation(); "Navigation stopped" }
+        is com.example.opendash.dash.DashMenu.Action.Dial -> {
+            if (callController.dial(action.call.number)) "Calling ${action.call.label}"
+            else {
+                _ui.update { it.copy(errorMessage = "Allow phone calls in Settings to dial from the dash") }
+                "Call not allowed"
+            }
+        }
+        com.example.opendash.dash.DashMenu.Action.None -> "Menu"
+    }
+
+    private fun loadRecentCalls() {
+        val app = getApplication<Application>()
+        if (!com.example.opendash.media.RecentCalls.hasPermission(app)) {
+            menu.setCalls(emptyList(), "Allow call history in Settings")
+            return
+        }
+        menu.setCalls(emptyList(), "Loading…")
+        viewModelScope.launch(Dispatchers.IO) {
+            val calls = com.example.opendash.media.RecentCalls.load(app)
+            withContext(Dispatchers.Main) {
+                menu.setCalls(calls, if (calls.isEmpty()) "No recent calls" else null)
+                touchMenu()
+            }
         }
     }
 
@@ -780,7 +856,19 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             _ui.value = _ui.value.copy(followMode = true)
         }
 
+        if (menu.isOpen && System.currentTimeMillis() - menuTouchedAt > MENU_IDLE_MS) {
+            menu.close(); lastSignature = ""
+        }
+
         val loc = location.location.value
+        if (extras.showWeather && loc != null &&
+            System.currentTimeMillis() - lastWeatherAt > WEATHER_EVERY_MS
+        ) {
+            lastWeatherAt = System.currentTimeMillis()
+            viewModelScope.launch(Dispatchers.IO) {
+                com.example.opendash.util.Weather.refresh(loc.latitude, loc.longitude)
+            }
+        }
         // While Google guides, its route replaces ours: no local progress tracking,
         // rerouting or announcements (Google does all three).
         val gNav = if (googleActive) com.example.opendash.google.GoogleNavInfoService.navInfo.value else null
@@ -963,7 +1051,10 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             append(if (headingUp) (camHeading * 10).toInt() else 0)
             append(remainingM?.let { (it / 100).toInt() } ?: -1) // 100 m resolution to avoid jitter
             append(if (r != null) r.geometry.size else 0)
-            append(CallInfoProvider.incomingCall.value?.takeIf { it.incoming }?.caller.orEmpty())
+            CallInfoProvider.incomingCall.value?.let { append(it.caller); append(it.incoming) }
+            append(menu.signature())
+            append(com.example.opendash.media.MessageInfoProvider.visible()?.atMs ?: 0L)
+            append(com.example.opendash.util.Weather.fresh()?.atMs ?: 0L)
         }
         val now = System.currentTimeMillis()
         if (sig != lastSignature || now - lastRedrawAt > FORCE_REDRAW_MS) {
@@ -1018,14 +1109,13 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.value.wallpaperCropY,
                 _ui.value.wallpaperFit,
             )
-            drawCallOverlay(canvas, bmp.width, bmp.height)
+            drawOverlays(canvas, bmp.width, bmp.height, google = false)
             return
         }
         if (googleActive && google.isFrameFresh()) {
             val canvas = Canvas(bmp)
             if (google.copyLatestFrame(canvas)) {
-                drawGoogleTurnBanner(canvas, bmp.width)
-                drawCallOverlay(canvas, bmp.width, bmp.height)
+                drawOverlays(canvas, bmp.width, bmp.height, google = true)
                 return
             }
         }
@@ -1070,7 +1160,33 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         )
         val canvas = Canvas(bmp)
         mapRenderer.draw(canvas, frame)
-        drawCallOverlay(canvas, bmp.width, bmp.height)
+        // Google's turn text still applies when only its picture has stalled.
+        drawOverlays(canvas, bmp.width, bmp.height, google = googleActive)
+    }
+
+    /** Everything drawn over the map or wallpaper, back to front. */
+    private fun drawOverlays(canvas: Canvas, width: Int, height: Int, google: Boolean) {
+        if (google) drawGoogleTurnBanner(canvas, width)
+        if (extras.showWeather) com.example.opendash.util.Weather.fresh()?.let {
+            overlay.drawWeather(canvas, width, height, it)
+        }
+        if (google && extras.showSpeedWarning) {
+            com.example.opendash.dash.video.DashOverlayPainter.limitFromSpeeding(
+                location.location.value?.speed ?: 0f, this.google.speedingPercent,
+            )?.let { overlay.drawSpeedLimit(canvas, width, height, it) }
+        }
+        val call = CallInfoProvider.incomingCall.value
+        if (menu.isOpen && call?.incoming != true) {
+            overlay.drawMenu(canvas, width, height, menu, System.currentTimeMillis())
+            return
+        }
+        if (call == null && extras.showMessages) {
+            com.example.opendash.media.MessageInfoProvider.visible()?.let {
+                overlay.drawMessage(canvas, width, height, it)
+            }
+        }
+        if (call != null && !call.incoming) overlay.drawActiveCall(canvas, width, height, call.caller)
+        drawCallOverlay(canvas, width, height)
     }
 
     private val callOverlayBackground by lazy {
@@ -1094,26 +1210,19 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private val turnBannerText by lazy {
-        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.WHITE
-            textSize = 17f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            textAlign = android.graphics.Paint.Align.CENTER
-        }
-    }
-
-    /** Next turn from Google ("350 m  Turn left"), top-centre inside the round safe zone. */
+    /** Next turn from Google: arrow, "350 m  Turn left", and the lane strip when Google has one. */
     private fun drawGoogleTurnBanner(canvas: Canvas, width: Int) {
         val nav = com.example.opendash.google.GoogleNavInfoService.navInfo.value ?: return
         val step = nav.currentStep ?: return
         val dist = nav.distanceToCurrentStepMeters ?: return
         val text = com.example.opendash.google.GoogleManeuvers.distance(dist) + "  " +
             com.example.opendash.google.GoogleManeuvers.phrase(step.maneuver)
-        val cx = width / 2f
-        val half = turnBannerText.measureText(text) / 2f + 12f
-        canvas.drawRoundRect(cx - half, 30f, cx + half, 58f, 14f, 14f, callOverlayBackground)
-        canvas.drawText(text, cx, 50f, turnBannerText)
+        overlay.drawTurnBanner(
+            canvas, width, text, step.maneuver,
+            runCatching { step.maneuverBitmap }.getOrNull(),
+        )
+        // Lanes only matter close to the turn.
+        if (dist <= 600) overlay.drawLanes(canvas, width, runCatching { step.lanesBitmap }.getOrNull())
     }
 
     private fun drawCallOverlay(canvas: Canvas, width: Int, height: Int) {
@@ -1289,6 +1398,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun startMediaForwarding() {
         mediaInfo.start()
+        phoneState.start()
         mediaObserveJob?.cancel()
         mediaObserveJob = viewModelScope.launch {
             launch {
@@ -1312,6 +1422,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         mediaObserveJob?.cancel()
         mediaObserveJob = null
         mediaInfo.stop()
+        phoneState.stop()
+        menu.close()
         session.updateNowPlaying(null, "", "")
         session.updateCall(null)
     }

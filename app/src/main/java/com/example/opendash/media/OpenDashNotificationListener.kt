@@ -8,6 +8,10 @@ import android.service.notification.StatusBarNotification
 class OpenDashNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val notification = sbn?.notification ?: return
+        if (notification.category == Notification.CATEGORY_MESSAGE) {
+            onMessage(sbn, notification)
+            return
+        }
         if (notification.category != Notification.CATEGORY_CALL) return
 
         val type = if (android.os.Build.VERSION.SDK_INT >= 31) {
@@ -31,6 +35,24 @@ class OpenDashNotificationListener : NotificationListenerService() {
         if (sbn?.notification?.category == Notification.CATEGORY_CALL) {
             CallInfoProvider.update(null)
         }
+    }
+
+    private var lastMessageKey = ""
+
+    /** SMS / chat notification → a short card on the dash. */
+    private fun onMessage(sbn: StatusBarNotification, notification: Notification) {
+        val extras = com.example.opendash.dash.DashExtras.get(this)
+        if (!extras.showMessages) return
+        if (sbn.packageName == packageName) return
+        if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        val sender = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
+        val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
+        if (sender.isBlank()) return
+        // Apps re-post the same notification on every update; show each text once.
+        val key = sbn.packageName + "|" + sender + "|" + text
+        if (key == lastMessageKey) return
+        lastMessageKey = key
+        MessageInfoProvider.post(sender, if (extras.showMessageText) text else "New message")
     }
 
     private fun extractActions(

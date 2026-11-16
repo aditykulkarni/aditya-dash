@@ -76,6 +76,10 @@ class GoogleNavEngine private constructor(private val app: Application) {
     @Volatile private var lastFrameAt = 0L       // uptime of the last image Google drew
     @Volatile private var haveFrame = false
 
+    /** How far over Google's speed limit the rider is, in percent; 0 when within it or unknown. */
+    @Volatile var speedingPercent = 0f
+        private set
+
     val isConfigured: Boolean get() = config.hasKey
     /** True when the saved key differs from the one the SDK started with. */
     val keyChangeNeedsRestart: Boolean get() = keyApplied != null && keyApplied != config.apiKey
@@ -166,9 +170,22 @@ class GoogleNavEngine private constructor(private val app: Application) {
         _state.value = GoogleNavState(GoogleNavStatus.ROUTING)
         setVoice(voice)
         runCatching {
+            // Ask Google for its own turn-arrow and lane pictures with each step.
             nav.registerServiceForNavUpdates(
-                app.packageName, GoogleNavInfoService::class.java.name, 1,
+                app.packageName, GoogleNavInfoService::class.java.name,
+                com.google.android.libraries.navigation.NavigationUpdatesOptions.builder()
+                    .setNumNextStepsToPreview(1)
+                    .setGeneratedStepImagesType(
+                        com.google.android.libraries.navigation.NavigationUpdatesOptions.GeneratedStepImagesType.BITMAP
+                    )
+                    .setDisplayMetrics(app.resources.displayMetrics)
+                    .build(),
             )
+            nav.setSpeedingListener { percentAbove, severity ->
+                speedingPercent =
+                    if (severity == com.google.android.libraries.navigation.SpeedAlertSeverity.NONE) 0f
+                    else percentAbove
+            }
         }.onFailure { DebugLog.w(TAG) { "Turn feed registration failed: ${it.message}" } }
 
         val waypoint = runCatching {
@@ -229,6 +246,8 @@ class GoogleNavEngine private constructor(private val app: Application) {
         runCatching { navigator?.stopGuidance() }
         runCatching { navigator?.clearDestinations() }
         runCatching { navigator?.unregisterServiceForNavUpdates() }
+        runCatching { navigator?.setSpeedingListener(null) }
+        speedingPercent = 0f
         GoogleNavInfoService.clear()
         releaseDisplay()
     }

@@ -125,9 +125,9 @@ fun HomeScreen(
             OpenDashRow(
                 "Start navigation",
                 icon = OpenDashIcons.Navi,
-                sub = "Pick a destination and send it to the dash",
+                sub = "Search for a place and send it to the dash",
                 trailingIcon = true,
-                onClick = { onNavigate("route") },
+                onClick = { routeViewModel.clear(); onNavigate("route") },
             )
             OpenDashDivider(Modifier.padding(horizontal = 4.dp))
             OpenDashRow(
@@ -146,7 +146,7 @@ fun HomeScreen(
         if (saved.isEmpty()) {
             OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
                 Text(
-                    "No saved destinations yet. Share a place from Google Maps, then tap “Save this destination”.",
+                    "No saved destinations yet. Search for a place or share one from Google Maps, then tap “Save this destination”.",
                     color = TextLo, fontSize = 13.sp,
                 )
             }

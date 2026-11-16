@@ -148,7 +148,8 @@ fun MapAndVoiceSettings(dashViewModel: DashViewModel) {
             ActivityResultContracts.RequestPermission(),
         ) { micGranted = it }
         Text(
-            "Press the joystick in while connected to the dash, then speak through your " +
+            "Press the joystick in while connected to the dash (or pick Voice command in the " +
+                "dash menu), then speak through your " +
                 "earbuds. Try: \"navigate to home\", \"next song\", \"pause\", \"volume up\", " +
                 "\"zoom out\", \"how far\", \"mute directions\", \"stop navigation\".",
             color = label, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp),
@@ -166,6 +167,64 @@ fun MapAndVoiceSettings(dashViewModel: DashViewModel) {
             dashUi.voiceHeard?.takeIf { it.isNotBlank() }?.let {
                 Text("Heard: $it", color = label, fontSize = 12.sp)
             }
+        }
+
+        // ── Joystick, calls and dash extras ─────────────────────────────────
+        Spacer(Modifier.height(18.dp))
+        Text("Joystick and calls", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Text(
+            "UP plays or pauses music. LEFT and RIGHT skip tracks. DOWN opens a menu on " +
+                "the dash with your recent calls: UP and DOWN move, RIGHT chooses, LEFT goes " +
+                "back. When the phone rings, UP answers and DOWN rejects; DOWN also ends a call.",
+            color = label, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp),
+        )
+        val phonePerms = arrayOf(
+            Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE, Manifest.permission.ANSWER_PHONE_CALLS,
+        )
+        fun phoneGranted() = phonePerms.all {
+            ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED
+        }
+        var phoneOk by remember { mutableStateOf(phoneGranted()) }
+        val phoneLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions(),
+        ) { phoneOk = phoneGranted() }
+        if (phoneOk) {
+            Text("Calls and call history are allowed.", color = label, fontSize = 12.sp)
+        } else {
+            Button(onClick = { phoneLauncher.launch(phonePerms) }) { Text("Allow calls and call history") }
+            Text(
+                "If nothing happens when you tap this, open the phone's Settings, Apps, " +
+                    "Aditya Dash, Permissions and allow Phone and Call logs there.",
+                color = label, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+
+        Spacer(Modifier.height(18.dp))
+        Text("Shown on the dash", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        val extras = remember { com.example.opendash.dash.DashExtras.get(ctx) }
+        var showMessages by remember { mutableStateOf(extras.showMessages) }
+        var showMessageText by remember { mutableStateOf(extras.showMessageText) }
+        var showWeather by remember { mutableStateOf(extras.showWeather) }
+        var showSpeed by remember { mutableStateOf(extras.showSpeedWarning) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("New messages (needs notification access)", Modifier.weight(1f), fontSize = 14.sp)
+            Switch(checked = showMessages, onCheckedChange = { showMessages = it; extras.showMessages = it })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Show the message text, not only the sender", Modifier.weight(1f), fontSize = 14.sp)
+            Switch(
+                checked = showMessageText, enabled = showMessages,
+                onCheckedChange = { showMessageText = it; extras.showMessageText = it },
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Weather where you are", Modifier.weight(1f), fontSize = 14.sp)
+            Switch(checked = showWeather, onCheckedChange = { showWeather = it; extras.showWeather = it })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Speed limit sign when you are over it (Google Maps only)", Modifier.weight(1f), fontSize = 14.sp)
+            Switch(checked = showSpeed, onCheckedChange = { showSpeed = it; extras.showSpeedWarning = it })
         }
 
         // ── Saved places ────────────────────────────────────────────────────

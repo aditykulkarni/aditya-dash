@@ -37,7 +37,7 @@ fun RouteScreen(
 ) {
     val routeState by routeViewModel.state.collectAsState()
     val dest       = routeState.destination
-    val destName   = dest?.name?.ifBlank { "Shared location" } ?: "Shared location"
+    val destName   = dest?.name?.ifBlank { "Shared location" } ?: "No destination yet"
     val destSub    = when {
         dest?.lat != null && dest.lng != null ->
             "%.5f, %.5f".format(dest.lat, dest.lng)
@@ -103,7 +103,11 @@ fun RouteScreen(
                 )
                 Spacer(Modifier.width(12.dp))
                 OpenDashChip(
-                    if (routeState.isResolving) "Resolving link…" else "Shared from Google Maps",
+                    when {
+                        routeState.isResolving -> "Resolving link…"
+                        dest == null -> "Search below or share from Google Maps"
+                        else -> "Route preview"
+                    },
                     tone = if (routeState.isResolving) ChipTone.Gold else ChipTone.Neutral,
                     icon = OpenDashIcons.Share,
                     modifier = Modifier.background(Color(0xB30D0F11), CircleShape),
@@ -132,6 +136,10 @@ fun RouteScreen(
             )
 
             Spacer(Modifier.height(12.dp))
+
+            DestinationSearch(routeViewModel)
+
+            Spacer(Modifier.height(16.dp))
 
             Eyebrow("Destination", Modifier.padding(bottom = 6.dp))
 
@@ -295,6 +303,83 @@ fun RouteScreen(
             onDelete = { routeViewModel.deleteSaved(loc); editing = null },
             onDismiss = { editing = null },
         )
+    }
+}
+
+/** Search box: type a place or address, tap a result to preview its route. */
+@Composable
+private fun DestinationSearch(routeViewModel: RouteViewModel) {
+    val results by routeViewModel.searchResults.collectAsState()
+    val searching by routeViewModel.searching.collectAsState()
+    val note by routeViewModel.searchNote.collectAsState()
+    var query by remember { mutableStateOf("") }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    // Search shortly after typing stops, so results appear without pressing anything.
+    LaunchedEffect(query) {
+        if (query.trim().length >= 3) {
+            kotlinx.coroutines.delay(700)
+            routeViewModel.search(query)
+        } else routeViewModel.clearSearch()
+    }
+
+    androidx.compose.material3.OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        singleLine = true,
+        placeholder = { Text("Search for a place or address", color = TextLo) },
+        leadingIcon = { Icon(OpenDashIcons.Search, contentDescription = null, tint = TextMid) },
+        trailingIcon = {
+            if (query.isNotEmpty()) Icon(
+                OpenDashIcons.X, contentDescription = "Clear", tint = TextMid,
+                modifier = Modifier.clickable { query = ""; routeViewModel.clearSearch() },
+            )
+        },
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            imeAction = androidx.compose.ui.text.input.ImeAction.Search,
+        ),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+            onSearch = { routeViewModel.search(query); keyboard?.hide() },
+        ),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    if (searching) {
+        Text("Searching…", color = TextLo, fontSize = 12.5.sp, modifier = Modifier.padding(top = 8.dp, start = 4.dp))
+    }
+    note?.let {
+        Text(it, color = TextLo, fontSize = 12.5.sp, modifier = Modifier.padding(top = 8.dp, start = 4.dp))
+    }
+    if (results.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+            results.forEachIndexed { i, hit ->
+                if (i > 0) OpenDashDivider(Modifier.padding(horizontal = 4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable {
+                            keyboard?.hide()
+                            query = ""
+                            routeViewModel.selectSearchResult(hit)
+                        }
+                        .padding(horizontal = 6.dp, vertical = 11.dp),
+                ) {
+                    Icon(OpenDashIcons.LocationPin, null, tint = Gold, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(hit.name, color = TextHi, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily, maxLines = 1)
+                        if (hit.detail.isNotBlank()) Text(
+                            hit.detail, color = TextLo, fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 2.dp), maxLines = 2,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

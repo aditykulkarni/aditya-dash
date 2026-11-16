@@ -40,8 +40,8 @@ android {
         applicationId = "com.aditya.dash"
         minSdk = 24
         targetSdk = 36
-        versionCode = 16
-        versionName = "1.3.1"
+        versionCode = 17
+        versionName = "1.4"
 
         buildConfigField(
             "String",
