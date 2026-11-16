@@ -20,9 +20,9 @@ community on dash firmware 11.63.
 | Google Maps on the dash | Google's Navigation SDK draws the map on a hidden 526 x 300 virtual display. Those frames go to the existing H.264 encoder and on to the dash. Routing, traffic, rerouting and spoken directions are Google's. Two-wheeler routing is requested. |
 | Your own API key | Entered in **More > Settings > Google Maps & voice commands**. Stored on the phone only. Never in the source or the APK. |
 | Offline map | Choose **Offline map** in the same place. OpenStreetMap tiles and the route are saved when you plan the trip and keep working without signal. If Google cannot start (no data, bad key), the ride falls back to this automatically. |
-| Voice commands | Press the joystick in (or use **Try a command**), then speak through your earbuds: "navigate to home", "next song", "pause", "volume up", "zoom out", "how far", "mute directions", "stop navigation", "answer", "reject". |
+| Voice commands | Push the joystick UP (or use **Try a command**), then speak through your earbuds: "navigate to home", "next song", "pause", "volume up", "zoom out", "how far", "mute directions", "stop navigation", "answer", "reject". |
 | Saved places | Name plus `lat,lng` in Settings. "Navigate to home" then works with no signal. |
-| Music controls | Track title on the dash. Joystick UP plays or pauses, LEFT and RIGHT skip tracks; voice for volume. Works through media-button presses even without notification access. |
+| Music controls | Track title on the dash. Pressing the joystick in plays or pauses, LEFT and RIGHT skip tracks; voice for volume. Works through media-button presses even without notification access. |
 | Destination search | Type a place or address on the route screen. Uses the phone's geocoder plus the open Photon (OpenStreetMap) index, so no extra API key is needed. |
 | Dash menu and calls | Joystick DOWN opens a menu drawn on the dash: recent calls (pick one, confirm, and it dials), play/pause, voice command, stop navigation. UP answers a ringing call, DOWN rejects or ends it. Needs the Phone and Call log permissions. |
 | Dash extras | Google's turn arrow and lane picture in the turn banner, new-message card (full build, notification access), weather from Open-Meteo, and a speed-limit sign while over Google's limit. Each has a switch in Settings. |

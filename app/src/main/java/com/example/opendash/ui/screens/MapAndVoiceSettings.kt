@@ -148,7 +148,7 @@ fun MapAndVoiceSettings(dashViewModel: DashViewModel) {
             ActivityResultContracts.RequestPermission(),
         ) { micGranted = it }
         Text(
-            "Press the joystick in while connected to the dash (or pick Voice command in the " +
+            "Push the joystick UP while connected to the dash (or pick Voice command in the " +
                 "dash menu), then speak through your " +
                 "earbuds. Try: \"navigate to home\", \"next song\", \"pause\", \"volume up\", " +
                 "\"zoom out\", \"how far\", \"mute directions\", \"stop navigation\".",
@@ -173,7 +173,8 @@ fun MapAndVoiceSettings(dashViewModel: DashViewModel) {
         Spacer(Modifier.height(18.dp))
         Text("Joystick and calls", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
         Text(
-            "UP plays or pauses music. LEFT and RIGHT skip tracks. DOWN opens a menu on " +
+            "Pressing the joystick in plays or pauses music. UP starts a voice command. " +
+                "LEFT and RIGHT skip tracks. DOWN opens a menu on " +
                 "the dash with your recent calls: UP and DOWN move, RIGHT chooses, LEFT goes " +
                 "back. When the phone rings, UP answers and DOWN rejects; DOWN also ends a call.",
             color = label, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp),

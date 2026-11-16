@@ -191,8 +191,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         private const val BTN_MAP_ZOOM_OUT = 0x13
         private const val BTN_MEDIA_NEXT = 0x09
         private const val BTN_MEDIA_PREVIOUS = 0x0A
-        /** Joystick press-in: push-to-talk for voice commands. */
-        private const val BTN_PUSH_TO_TALK = 0x18
+        /** Joystick press-in: play/pause, or select inside the dash menu. */
+        private const val BTN_PRESS = 0x18
         private const val BTN_BACK = 0x12
         private const val BTN_UP = 0x06
         private const val BTN_DOWN = 0x07
@@ -274,9 +274,9 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                     if (call.incoming) "Call rejected" else "Call ended"
                 }
                 menu.isOpen -> menuButton(code)
-                code == BTN_PUSH_TO_TALK -> {
-                    startVoiceCommand()
-                    "Listening"
+                // Press-in plays or pauses, as in the Royal Enfield app.
+                code == BTN_PRESS -> {
+                    if (mediaInfo.togglePlayPause()) "Play" else "Pause"
                 }
                 code == BTN_DOWN || code == BTN_BACK -> {
                     menu.open(navActive = destLat != null)
@@ -284,7 +284,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                     "Menu"
                 }
                 code == BTN_UP -> {
-                    if (mediaInfo.togglePlayPause()) "Play" else "Pause"
+                    startVoiceCommand()
+                    "Listening"
                 }
                 isIdleWallpaperMode() && code == BTN_MEDIA_NEXT -> {
                     cycleWallpaper(1)
@@ -330,7 +331,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             BTN_UP -> { menu.move(-1); "Menu up" }
             BTN_DOWN -> { menu.move(+1); "Menu down" }
             BTN_LEFT, BTN_BACK -> { menu.back(); "Menu back" }
-            BTN_RIGHT, BTN_PUSH_TO_TALK -> runMenuAction(menu.select())
+            BTN_RIGHT, BTN_PRESS -> runMenuAction(menu.select())
             else -> "code 0x${code.toString(16).uppercase()}"
         }
         touchMenu()
