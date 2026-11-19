@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -252,6 +253,7 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
+                DashEventLogPanel()
             }
         }
 
@@ -450,5 +452,52 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+
+/** What the dash has sent: packet counts plus every non-routine message, newest first. */
+@Composable
+private fun DashEventLogPanel() {
+    val stats by com.example.opendash.dash.DashEventLog.stats.collectAsState()
+    val lines by com.example.opendash.dash.DashEventLog.lines.collectAsState()
+    val ctx = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "From dash: ${stats.packets} packets, ${stats.buttons} buttons, ${stats.other} other" +
+            if (open) "  (hide)" else "  (show log)",
+        color = TextMid, fontSize = 11.sp, fontFamily = GeistMonoFamily,
+        modifier = Modifier.clickable { open = !open },
+    )
+    if (!open) return
+    androidx.compose.foundation.layout.Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(top = 4.dp),
+    ) {
+        OpenDashBtn(
+            "Share log",
+            onClick = {
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_TEXT, com.example.opendash.dash.DashEventLog.asText())
+                }
+                runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Share dash log")) }
+            },
+            variant = BtnVariant.Secondary, size = BtnSize.Sm,
+        )
+        OpenDashBtn(
+            "Clear",
+            onClick = { com.example.opendash.dash.DashEventLog.clear() },
+            variant = BtnVariant.Ghost, size = BtnSize.Sm,
+        )
+    }
+    if (lines.isEmpty()) {
+        Text("Nothing yet besides routine frame acknowledgements.", color = TextLo, fontSize = 11.sp,
+            modifier = Modifier.padding(top = 4.dp))
+    }
+    lines.take(25).forEach {
+        Text(it, color = TextLo, fontSize = 10.5.sp, fontFamily = GeistMonoFamily, maxLines = 2,
+            modifier = Modifier.padding(top = 2.dp))
     }
 }

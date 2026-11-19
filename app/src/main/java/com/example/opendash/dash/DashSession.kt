@@ -264,8 +264,12 @@ class DashSession(private val scope: CoroutineScope) {
         }
     }
 
+    private val seenSecureSubs = java.util.Collections.synchronizedSet(HashSet<Int>())
+
     private fun dispatchIncoming(pkt: ByteArray, sock: DashSocket) {
         val tlvs = K1GPacket.parseIncoming(pkt)
+        DashEventLog.packet()
+        if (tlvs.isEmpty()) DashEventLog.note("Unparsed packet (${pkt.size}B): ${pkt.toHexFull().take(120)}")
         // Dump the full raw packet for anything that ISN'T just the per-frame decode
         // acks (09 06 55 / 09 04 55) — those fire ~8×/s and would drown the log. This
         // captures joystick events, telemetry, and any unknown TLV in full hex so a
@@ -283,7 +287,7 @@ class DashSession(private val scope: CoroutineScope) {
                         DebugLog.i(TAG) { "Got RSA pubkey — sending q3c.d" }
                         sock.send(ev.packet)
                     }
-                    AuthEvent.Confirmed -> { authConfirmed = true }
+                    AuthEvent.Confirmed -> { authConfirmed = true; DashEventLog.note("Dash accepted the handshake") }
                     AuthEvent.Rejected -> {
                         authRetries++
                         DebugLog.w(TAG) { "Auth rejected — retry #$authRetries" }
@@ -299,6 +303,7 @@ class DashSession(private val scope: CoroutineScope) {
                 tlv.value.firstOrNull()?.toInt() == 0x55
             ) {
                 sock.send(DashCommands.frameDecodedIdr())
+                DashEventLog.ack()
                 continue
             }
             // ── 09 04 55: P-frame decoded → q3c.K2 ──
@@ -306,6 +311,7 @@ class DashSession(private val scope: CoroutineScope) {
                 tlv.value.firstOrNull()?.toInt() == 0x55
             ) {
                 sock.send(DashCommands.frameDecodedP())
+                DashEventLog.ack()
                 continue
             }
             // ── 09 00: button / joystick event → echo ack + notify UI ──
@@ -313,6 +319,7 @@ class DashSession(private val scope: CoroutineScope) {
                 val btn = tlv.value.last()  // 0900 0001 <code>
                 DebugLog.i(TAG) { "JOYSTICK 09 00 → code 0x${(btn.toInt() and 0xFF).toString(16).uppercase()}  full=${tlv.value.toHexFull()}" }
                 sock.send(DashCommands.buttonAck(btn))
+                DashEventLog.button(btn.toInt() and 0xFF, tlv.value.toHexFull())
                 scope.launch(Dispatchers.Main) { onButton?.invoke(btn) }
                 continue
             }
@@ -324,6 +331,8 @@ class DashSession(private val scope: CoroutineScope) {
             //    own session, so plain `adb logcat -s DashSession` captures it — no
             //    root, no monitor mode. ──
             if (tlv.type == 0x0F) {
+                // Encrypted bike data arrives often; list each kind once so it can't hide buttons.
+                if (seenSecureSubs.add(tlv.sub)) DashEventLog.note("Bike data 0F %02X first seen (%dB)".format(tlv.sub, tlv.value.size))
                 val key = auth?.sessionKey
                 val plain = key?.let { aesDecryptCbc(tlv.value, it) }
                 DebugLog.i(TAG) { "DASH TELEMETRY 0F sub=0x%02X enc(%dB)=%s  dec=%s".format(
@@ -333,12 +342,14 @@ class DashSession(private val scope: CoroutineScope) {
             }
             // ── 0C xx: dash → app telemetry (trip/odo/fuel/temp — P1b) ──
             if (tlv.type == 0x0C) {
+                DashEventLog.event(tlv.type, tlv.sub, tlv.value.toHexFull())
                 DebugLog.i(TAG) { "DASH TELEMETRY 0C sub=0x%02X (%dB) val=%s"
                     .format(tlv.sub, tlv.value.size, tlv.value.toHexFull()) }
                 continue
             }
             // Log every OTHER incoming event (e.g. joystick in nav view, or the dash's
             // 'exit navigation' selection) in FULL so its TLV can be identified + mapped.
+            DashEventLog.event(tlv.type, tlv.sub, tlv.value.toHexFull())
             DebugLog.i(TAG) { "DASH EVENT type=0x%02X sub=0x%02X (%dB) val=%s"
                 .format(tlv.type, tlv.sub, tlv.value.size, tlv.value.toHexFull()) }
         }
